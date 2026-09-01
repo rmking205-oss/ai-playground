@@ -1,0 +1,967 @@
+
+<!DOCTYPE html>
+<html>
+
+<head>
+
+    <title>AI Playground</title>
+
+    <style>
+
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f4f4;
+            margin: 0;
+            padding: 40px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: auto;
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+        }
+
+        h1 {
+            margin-top: 0;
+        }
+
+        #balance {
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+
+        .settings {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .setting {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .setting label {
+            margin-bottom: 6px;
+            font-weight: bold;
+        }
+
+        select,
+        input {
+            padding: 9px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+
+        textarea {
+            width: 100%;
+            height: 100px;
+            padding: 10px;
+            box-sizing: border-box;
+            resize: vertical;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+
+        button {
+            padding: 10px 18px;
+            margin-top: 10px;
+            margin-right: 5px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        #sendBtn {
+            background: #222;
+            color: white;
+        }
+
+        #stopBtn {
+            background: #d9534f;
+            color: white;
+        }
+
+        #stopBtn:disabled {
+            background: #aaa;
+            cursor: not-allowed;
+        }
+
+        #sendBtn:disabled {
+            background: #aaa;
+            cursor: not-allowed;
+        }
+
+        #answer {
+            margin-top: 25px;
+            padding: 20px;
+            background: #f7f7f7;
+            border-radius: 8px;
+            min-height: 100px;
+            white-space: pre-wrap;
+            line-height: 1.6;
+        }
+
+        #status {
+            margin-top: 10px;
+            color: #666;
+        }
+
+        .range-value {
+            margin-top: 5px;
+            font-size: 14px;
+            color: #666;
+        }
+
+    </style>
+
+</head>
+
+
+<body>
+
+<div class="container">
+
+    <h1>AI Playground</h1>
+
+
+    <!-- BALANCE -->
+
+    <div id="balance">
+        Checking balance...
+    </div>
+
+
+    <!-- AI SETTINGS -->
+
+    <div class="settings">
+
+
+        <!-- MODEL -->
+
+        <div class="setting">
+
+            <label for="model">
+                Model
+            </label>
+
+            <select id="model">
+
+                <option value="openai/gpt-oss-20b">
+                    GPT OSS 20B
+                </option>
+
+                <option value="llama-3.3-70b-versatile">
+                    Llama 3.3 70B
+                </option>
+
+                <option value="llama-3.1-8b-instant">
+                    Llama 3.1 8B
+                </option>
+
+            </select>
+
+        </div>
+
+
+        <!-- MAX TOKENS -->
+
+        <div class="setting">
+
+            <label for="maxTokens">
+                Max Tokens
+            </label>
+
+            <input
+                type="number"
+                id="maxTokens"
+                min="1"
+                max="2000"
+                value="2000"
+            >
+
+        </div>
+
+
+        <!-- TEMPERATURE -->
+
+        <div class="setting">
+
+            <label for="temperature">
+                Temperature
+            </label>
+
+            <input
+                type="range"
+                id="temperature"
+                min="0"
+                max="2"
+                step="0.1"
+                value="0.7"
+            >
+
+            <div class="range-value">
+                Value:
+                <span id="temperatureValue">
+                    0.7
+                </span>
+            </div>
+
+        </div>
+
+
+        <!-- TOP P -->
+
+        <div class="setting">
+
+            <label for="topP">
+                Top P
+            </label>
+
+            <input
+                type="range"
+                id="topP"
+                min="0"
+                max="1"
+                step="0.05"
+                value="1"
+            >
+
+            <div class="range-value">
+                Value:
+                <span id="topPValue">
+                    1
+                </span>
+            </div>
+
+        </div>
+
+
+    </div>
+
+
+    <!-- QUESTION -->
+
+    <textarea
+        id="question"
+        placeholder="Ask something..."
+    ></textarea>
+
+
+    <br>
+
+
+    <!-- BUTTONS -->
+
+    <button id="sendBtn">
+        Send
+    </button>
+
+    <button id="stopBtn" disabled>
+        Stop Generation
+    </button>
+
+
+    <!-- STATUS -->
+
+    <div id="status"></div>
+
+
+    <!-- ANSWER -->
+
+    <div id="answer">
+        AI response will appear here...
+    </div>
+
+
+</div>
+
+
+<script>
+
+
+// ==================================
+// ELEMENTS
+// ==================================
+
+const questionInput =
+    document.getElementById("question");
+
+const sendBtn =
+    document.getElementById("sendBtn");
+
+const stopBtn =
+    document.getElementById("stopBtn");
+
+const answerBox =
+    document.getElementById("answer");
+
+const statusBox =
+    document.getElementById("status");
+
+const balanceBox =
+    document.getElementById("balance");
+
+const modelInput =
+    document.getElementById("model");
+
+const temperatureInput =
+    document.getElementById("temperature");
+
+const topPInput =
+    document.getElementById("topP");
+
+const maxTokensInput =
+    document.getElementById("maxTokens");
+
+const temperatureValue =
+    document.getElementById("temperatureValue");
+
+const topPValue =
+    document.getElementById("topPValue");
+
+
+// ==================================
+// VARIABLES
+// ==================================
+
+let currentRequestId = null;
+
+let currentController = null;
+
+let isGenerating = false;
+
+let stopRequested = false;
+
+
+// ==================================
+// TEMPERATURE DISPLAY
+// ==================================
+
+temperatureInput.addEventListener(
+    "input",
+    () => {
+
+        temperatureValue.textContent =
+            temperatureInput.value;
+
+    }
+);
+
+
+// ==================================
+// TOP P DISPLAY
+// ==================================
+
+topPInput.addEventListener(
+    "input",
+    () => {
+
+        topPValue.textContent =
+            topPInput.value;
+
+    }
+);
+
+
+// ==================================
+// CHECK BALANCE
+// ==================================
+
+async function checkBalance() {
+
+    try {
+
+        const response =
+            await fetch("/check-balance");
+
+        const data =
+            await response.json();
+
+        if (data.allowed) {
+
+            balanceBox.textContent =
+                "Balance: $" +
+                Number(data.balance).toFixed(5);
+
+        } else {
+
+            balanceBox.textContent =
+                "Insufficient balance";
+
+        }
+
+    } catch (error) {
+
+        balanceBox.textContent =
+            "Could not check balance";
+
+    }
+
+}
+
+
+// ==================================
+// SEND MESSAGE
+// ==================================
+
+async function sendMessage() {
+
+    if (isGenerating) {
+        return;
+    }
+
+
+    const question =
+        questionInput.value.trim();
+
+
+    if (!question) {
+
+        alert(
+            "Please enter a question."
+        );
+
+        return;
+
+    }
+
+
+    // ==================================
+    // READ SETTINGS
+    // ==================================
+
+    const model =
+        modelInput.value;
+
+    const temperature =
+        Number(
+            temperatureInput.value
+        );
+
+    const top_p =
+        Number(
+            topPInput.value
+        );
+
+    const max_tokens =
+        Number(
+            maxTokensInput.value
+        );
+
+
+    // ==================================
+    // VALIDATION
+    // ==================================
+
+    if (
+        temperature < 0 ||
+        temperature > 2
+    ) {
+
+        alert(
+            "Temperature must be between 0 and 2."
+        );
+
+        return;
+
+    }
+
+
+    if (
+        top_p < 0 ||
+        top_p > 1
+    ) {
+
+        alert(
+            "Top P must be between 0 and 1."
+        );
+
+        return;
+
+    }
+
+
+    if (
+        !Number.isInteger(max_tokens) ||
+        max_tokens < 1 ||
+        max_tokens > 2000
+    ) {
+
+        alert(
+            "Max Tokens must be between 1 and 2000."
+        );
+
+        return;
+
+    }
+
+
+    // ==================================
+    // START GENERATION
+    // ==================================
+
+    isGenerating = true;
+
+    stopRequested = false;
+
+    currentRequestId = null;
+
+    sendBtn.disabled = true;
+
+    stopBtn.disabled = false;
+
+    answerBox.textContent = "";
+
+    statusBox.textContent =
+        "AI is generating...";
+
+
+    // ==================================
+    // CREATE ABORT CONTROLLER
+    // ==================================
+
+    currentController =
+        new AbortController();
+
+
+    try {
+
+
+        // ==================================
+        // SEND REQUEST
+        // ==================================
+
+        const response =
+            await fetch(
+                "/api/chat",
+                {
+
+                    method: "POST",
+
+                    headers: {
+
+                        "Content-Type":
+                            "application/json"
+
+                    },
+
+                    body: JSON.stringify({
+
+                        question:
+                            question,
+
+                        model:
+                            model,
+
+                        temperature:
+                            temperature,
+
+                        top_p:
+                            top_p,
+
+                        max_tokens:
+                            max_tokens
+
+                    }),
+
+                    signal:
+                        currentController.signal
+
+                }
+            );
+
+
+        // ==================================
+        // ERROR RESPONSE
+        // ==================================
+
+        if (!response.ok) {
+
+            const errorData =
+                await response.json();
+
+            throw new Error(
+                errorData.message ||
+                "Request failed"
+            );
+
+        }
+
+
+        // ==================================
+        // READ STREAM
+        // ==================================
+
+        const reader =
+            response.body.getReader();
+
+        const decoder =
+            new TextDecoder();
+
+        let buffer = "";
+
+
+        while (true) {
+
+
+            const {
+                value,
+                done
+            } =
+                await reader.read();
+
+
+            if (done) {
+                break;
+            }
+
+
+            buffer +=
+                decoder.decode(
+                    value,
+                    {
+                        stream: true
+                    }
+                );
+
+
+            const events =
+                buffer.split("\n\n");
+
+
+            buffer =
+                events.pop();
+
+
+            for (
+                const event
+                of events
+            ) {
+
+
+                if (
+                    !event.startsWith("data:")
+                ) {
+
+                    continue;
+
+                }
+
+
+                const jsonText =
+                    event
+                        .replace(
+                            "data:",
+                            ""
+                        )
+                        .trim();
+
+
+                if (!jsonText) {
+                    continue;
+                }
+
+
+                const data =
+                    JSON.parse(
+                        jsonText
+                    );
+
+
+                // ==================================
+                // START EVENT
+                // ==================================
+
+                if (
+                    data.type === "start"
+                ) {
+
+                    /*
+                     * VERY IMPORTANT
+                     *
+                     * requestId yahan milta hai.
+                     * Isko DONE event ka wait kiye
+                     * baghair save karna hai.
+                     */
+
+                    currentRequestId =
+                        data.requestId;
+
+
+                    statusBox.textContent =
+                        "AI is generating...";
+
+                }
+
+
+                // ==================================
+                // STREAM CHUNK
+                // ==================================
+
+                if (
+                    data.type === "chunk"
+                ) {
+
+                    answerBox.textContent +=
+                        data.content;
+
+                }
+
+
+                // ==================================
+                // DONE
+                // ==================================
+
+                if (
+                    data.type === "done"
+                ) {
+
+
+                    currentRequestId =
+                        data.requestId;
+
+
+                    statusBox.textContent =
+                        "Generation completed. " +
+                        "Tokens: " +
+                        data.tokens +
+                        " | Cost: $" +
+                        Number(
+                            data.cost
+                        ).toFixed(6) +
+                        " | Model: " +
+                        data.model;
+
+
+                    checkBalance();
+
+                }
+
+
+                // ==================================
+                // ERROR
+                // ==================================
+
+                if (
+                    data.type === "error"
+                ) {
+
+                    throw new Error(
+                        data.message
+                    );
+
+                }
+
+            }
+
+        }
+
+
+    } catch (error) {
+
+
+        if (
+            error.name ===
+            "AbortError"
+        ) {
+
+            if (!stopRequested) {
+
+                statusBox.textContent =
+                    "Generation stopped.";
+
+            }
+
+        } else {
+
+            statusBox.textContent =
+                "Error: " +
+                error.message;
+
+        }
+
+
+    } finally {
+
+
+        isGenerating = false;
+
+        sendBtn.disabled = false;
+
+        stopBtn.disabled = true;
+
+        currentController = null;
+
+        currentRequestId = null;
+
+        stopRequested = false;
+
+        checkBalance();
+
+    }
+
+}
+
+
+// ==================================
+// STOP GENERATION
+// ==================================
+
+async function stopGeneration() {
+
+
+    if (!isGenerating) {
+        return;
+    }
+
+
+    // ==================================
+    // REQUEST ID CHECK
+    // ==================================
+
+    if (!currentRequestId) {
+
+        statusBox.textContent =
+            "Request ID not received yet.";
+
+        return;
+
+    }
+
+
+    // ==================================
+    // MARK STOP REQUEST
+    // ==================================
+
+    stopRequested = true;
+
+    const requestIdToStop =
+        currentRequestId;
+
+
+    statusBox.textContent =
+        "Stopping generation...";
+
+
+    // ==================================
+    // STOP BACKEND
+    // ==================================
+
+    try {
+
+        const response =
+            await fetch(
+                "/api/chat/stop",
+                {
+
+                    method: "POST",
+
+                    headers: {
+
+                        "Content-Type":
+                            "application/json"
+
+                    },
+
+                    body: JSON.stringify({
+
+                        requestId:
+                            requestIdToStop
+
+                    })
+
+                }
+            );
+
+
+        const data =
+            await response.json();
+
+
+        console.log(
+            "Backend stop response:",
+            data
+        );
+
+
+    } catch (error) {
+
+        console.log(
+            "Stop request error:",
+            error.message
+        );
+
+    }
+
+
+    // ==================================
+    // STOP BROWSER REQUEST
+    // ==================================
+
+    if (currentController) {
+
+        currentController.abort();
+
+    }
+
+
+    // ==================================
+    // UPDATE UI
+    // ==================================
+
+    isGenerating = false;
+
+    sendBtn.disabled = false;
+
+    stopBtn.disabled = true;
+
+
+    statusBox.textContent =
+        "Generation stopped. Partial usage charged and unused balance refunded.";
+
+
+    // ==================================
+    // REFRESH BALANCE
+    // ==================================
+
+    setTimeout(
+        checkBalance,
+        500
+    );
+
+}
+
+
+// ==================================
+// BUTTON EVENTS
+// ==================================
+
+sendBtn.addEventListener(
+    "click",
+    sendMessage
+);
+
+
+stopBtn.addEventListener(
+    "click",
+    stopGeneration
+);
+
+
+// ==================================
+// INITIAL BALANCE
+// ==================================
+
+checkBalance();
+
+
+</script>
+
+</body>
+
+</html>
