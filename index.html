@@ -151,16 +151,8 @@
 
             <select id="model">
 
-                <option value="openai/gpt-oss-20b">
-                    GPT OSS 20B
-                </option>
-
-                <option value="llama-3.3-70b-versatile">
-                    Llama 3.3 70B
-                </option>
-
-                <option value="llama-3.1-8b-instant">
-                    Llama 3.1 8B
+                <option>
+                    Loading models...
                 </option>
 
             </select>
@@ -336,6 +328,129 @@ let currentController = null;
 let isGenerating = false;
 
 let stopRequested = false;
+
+
+// ==================================
+// LOAD MODELS
+// ==================================
+
+async function loadModels() {
+
+    try {
+
+        const response =
+            await fetch("/models");
+
+
+        if (!response.ok) {
+
+            throw new Error(
+                "Failed to load models"
+            );
+
+        }
+
+
+        const data =
+            await response.json();
+
+
+        if (
+            !data.success ||
+            !Array.isArray(data.models) ||
+            data.models.length === 0
+        ) {
+
+            throw new Error(
+                "No models available"
+            );
+
+        }
+
+
+        // Remove old options
+
+        modelInput.innerHTML = "";
+
+
+        // Add models from backend
+
+        data.models.forEach(
+            model => {
+
+                const option =
+                    document.createElement("option");
+
+
+                option.value =
+                    model.id;
+
+
+                option.textContent =
+                    model.id;
+
+
+                modelInput.appendChild(
+                    option
+                );
+
+            }
+        );
+
+
+        // Select default model
+
+        const defaultModel =
+            "openai/gpt-oss-20b";
+
+
+        const defaultOption =
+            Array.from(
+                modelInput.options
+            ).find(
+                option =>
+                    option.value === defaultModel
+            );
+
+
+        if (defaultOption) {
+
+            modelInput.value =
+                defaultModel;
+
+        }
+
+
+    } catch (error) {
+
+        console.error(
+            "Model loading error:",
+            error
+        );
+
+
+        modelInput.innerHTML = "";
+
+
+        const option =
+            document.createElement("option");
+
+
+        option.textContent =
+            "Unable to load models";
+
+
+        modelInput.appendChild(
+            option
+        );
+
+
+        statusBox.textContent =
+            "Could not load models.";
+
+    }
+
+}
 
 
 // ==================================
@@ -608,7 +723,6 @@ async function sendMessage() {
 
         while (true) {
 
-
             const {
                 value,
                 done
@@ -681,14 +795,6 @@ async function sendMessage() {
                     data.type === "start"
                 ) {
 
-                    /*
-                     * VERY IMPORTANT
-                     *
-                     * requestId yahan milta hai.
-                     * Isko DONE event ka wait kiye
-                     * baghair save karna hai.
-                     */
-
                     currentRequestId =
                         data.requestId;
 
@@ -720,7 +826,6 @@ async function sendMessage() {
                 if (
                     data.type === "done"
                 ) {
-
 
                     currentRequestId =
                         data.requestId;
@@ -954,8 +1059,10 @@ stopBtn.addEventListener(
 
 
 // ==================================
-// INITIAL BALANCE
+// INITIAL LOAD
 // ==================================
+
+loadModels();
 
 checkBalance();
 

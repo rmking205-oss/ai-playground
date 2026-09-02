@@ -1,4 +1,3 @@
-
 require("dotenv").config();
 
 const { MongoClient, ObjectId } = require("mongodb");
@@ -36,13 +35,8 @@ const USER_ID = "6a9674426b44c1c31ba4f297";
 // AI MODELS
 // ===============================
 
+// Default model
 const DEFAULT_MODEL = "openai/gpt-oss-20b";
-
-const AVAILABLE_MODELS = [
-    "openai/gpt-oss-20b",
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant"
-];
 
 
 // ===============================
@@ -96,6 +90,63 @@ const activeRequests = new Map();
 
 
 // ===============================
+// GET GROQ CHAT MODELS
+// ===============================
+
+async function getChatModels() {
+
+    const models = await groq.models.list();
+
+    /*
+        Groq returns different types of models.
+
+        Examples:
+
+        whisper -> audio
+        orpheus -> audio
+        prompt-guard -> security
+
+        We only want models that are
+        suitable for chat.
+    */
+
+    const chatModels = models.data
+
+        .filter(model => {
+
+            // Ignore inactive models
+            if (model.active === false) {
+                return false;
+            }
+
+            const id = model.id.toLowerCase();
+
+            // Ignore audio models
+            if (
+                id.includes("whisper") ||
+                id.includes("orpheus")
+            ) {
+                return false;
+            }
+
+            // Ignore prompt guard models
+            if (
+                id.includes("prompt-guard")
+            ) {
+                return false;
+            }
+
+            return true;
+
+        })
+
+        .map(model => model.id);
+
+    return chatModels;
+}
+
+
+// ===============================
 // HOME
 // ===============================
 
@@ -109,18 +160,83 @@ app.get("/", (req, res) => {
 
 
 // ===============================
-// AVAILABLE MODELS
+// AVAILABLE CHAT MODELS
 // ===============================
 
-app.get("/models", (req, res) => {
+app.get("/models", async (req, res) => {
 
-    res.json({
+    try {
 
-        success: true,
+        // Get current models directly from Groq
+        const chatModelIds =
+            await getChatModels();
 
-        models: AVAILABLE_MODELS
+        // Get full model information
+        const models =
+            await groq.models.list();
 
-    });
+        // Only return models that passed
+        // our chat-model filter
+        const chatModels =
+            models.data
+
+                .filter(model =>
+                    chatModelIds.includes(model.id)
+                )
+
+                .map(model => ({
+
+                    id:
+                        model.id,
+
+                    owned_by:
+                        model.owned_by,
+
+                    active:
+                        model.active,
+
+                    context_window:
+                        model.context_window,
+
+                    max_completion_tokens:
+                        model.max_completion_tokens
+
+                }));
+
+
+        res.json({
+
+            success:
+                true,
+
+            models:
+                chatModels
+
+        });
+
+
+    } catch (error) {
+
+        console.error(
+            "Groq models error:",
+            error
+        );
+
+
+        res.status(500).json({
+
+            success:
+                false,
+
+            message:
+                "Unable to fetch chat models from Groq",
+
+            error:
+                error.message
+
+        });
+
+    }
 
 });
 
@@ -133,22 +249,27 @@ app.get("/users", async (req, res) => {
 
     try {
 
-        const db = client.db("ai_playground");
+        const db =
+            client.db("ai_playground");
 
         const users =
             await db.collection("users")
                 .find()
                 .toArray();
 
+
         res.json(users);
+
 
     } catch (error) {
 
         res.status(500).json({
 
-            success: false,
+            success:
+                false,
 
-            message: error.message
+            message:
+                error.message
 
         });
 
@@ -165,23 +286,30 @@ app.get("/ledger", async (req, res) => {
 
     try {
 
-        const db = client.db("ai_playground");
+        const db =
+            client.db("ai_playground");
 
         const ledger =
             await db.collection("ledger")
                 .find()
-                .sort({ createdAt: -1 })
+                .sort({
+                    createdAt: -1
+                })
                 .toArray();
 
+
         res.json(ledger);
+
 
     } catch (error) {
 
         res.status(500).json({
 
-            success: false,
+            success:
+                false,
 
-            message: error.message
+            message:
+                error.message
 
         });
 
@@ -198,44 +326,57 @@ app.get("/check-balance", async (req, res) => {
 
     try {
 
-        const db = client.db("ai_playground");
+        const db =
+            client.db("ai_playground");
 
         const user =
             await db.collection("users").findOne({
 
-                _id: new ObjectId(USER_ID)
+                _id:
+                    new ObjectId(USER_ID)
 
             });
+
 
         if (!user) {
 
             return res.status(404).json({
 
-                allowed: false,
+                allowed:
+                    false,
 
-                message: "User not found"
+                message:
+                    "User not found"
 
             });
 
         }
 
-        const balance = Number(user.balance);
+
+        const balance =
+            Number(user.balance);
+
 
         res.json({
 
-            allowed: balance > 0,
+            allowed:
+                balance > 0,
 
-            balance: balance
+            balance:
+                balance
 
         });
+
 
     } catch (error) {
 
         res.status(500).json({
 
-            allowed: false,
+            allowed:
+                false,
 
-            message: error.message
+            message:
+                error.message
 
         });
 
@@ -255,16 +396,22 @@ async function reserveBalance(
     model
 ) {
 
-    const session = client.startSession();
+    const session =
+        client.startSession();
+
 
     try {
 
         session.startTransaction();
 
-        const db = client.db("ai_playground");
+
+        const db =
+            client.db("ai_playground");
+
 
         const users =
             db.collection("users");
+
 
         const ledger =
             db.collection("ledger");
@@ -274,7 +421,8 @@ async function reserveBalance(
             await users.findOne(
 
                 {
-                    _id: new ObjectId(userId)
+                    _id:
+                        new ObjectId(userId)
                 },
 
                 {
@@ -286,7 +434,9 @@ async function reserveBalance(
 
         if (!user) {
 
-            throw new Error("User not found");
+            throw new Error(
+                "User not found"
+            );
 
         }
 
@@ -299,6 +449,7 @@ async function reserveBalance(
             "Current balance:",
             balance
         );
+
 
         console.log(
             "Reservation:",
@@ -320,10 +471,14 @@ async function reserveBalance(
 
                 {
 
-                    _id: new ObjectId(userId),
+                    _id:
+                        new ObjectId(userId),
 
                     balance: {
-                        $gte: reservationCost
+
+                        $gte:
+                            reservationCost
+
                     }
 
                 },
@@ -332,7 +487,8 @@ async function reserveBalance(
 
                     $inc: {
 
-                        balance: -reservationCost
+                        balance:
+                            -reservationCost
 
                     }
 
@@ -347,7 +503,9 @@ async function reserveBalance(
             );
 
 
-        if (updateResult.modifiedCount !== 1) {
+        if (
+            updateResult.modifiedCount !== 1
+        ) {
 
             throw new Error(
                 "Balance changed. Please try again."
@@ -360,19 +518,26 @@ async function reserveBalance(
 
             {
 
-                requestId: requestId,
+                requestId:
+                    requestId,
 
-                userId: userId,
+                userId:
+                    userId,
 
-                type: "ai_reservation",
+                type:
+                    "ai_reservation",
 
-                reservedCost: reservationCost,
+                reservedCost:
+                    reservationCost,
 
-                status: "reserved",
+                status:
+                    "reserved",
 
-                model: model,
+                model:
+                    model,
 
-                createdAt: new Date()
+                createdAt:
+                    new Date()
 
             },
 
@@ -420,16 +585,22 @@ async function finalizeUsage(
     actualCost
 ) {
 
-    const session = client.startSession();
+    const session =
+        client.startSession();
+
 
     try {
 
         session.startTransaction();
 
-        const db = client.db("ai_playground");
+
+        const db =
+            client.db("ai_playground");
+
 
         const users =
             db.collection("users");
+
 
         const ledger =
             db.collection("ledger");
@@ -440,11 +611,14 @@ async function finalizeUsage(
 
                 {
 
-                    requestId: requestId,
+                    requestId:
+                        requestId,
 
-                    type: "ai_reservation",
+                    type:
+                        "ai_reservation",
 
-                    status: "reserved"
+                    status:
+                        "reserved"
 
                 },
 
@@ -467,13 +641,19 @@ async function finalizeUsage(
 
 
         const reservedCost =
-            Number(reservation.reservedCost);
+            Number(
+                reservation.reservedCost
+            );
 
 
         const refund =
             Math.max(
+
                 0,
-                reservedCost - actualCost
+
+                reservedCost -
+                    actualCost
+
             );
 
 
@@ -483,7 +663,8 @@ async function finalizeUsage(
 
                 {
 
-                    _id: new ObjectId(userId)
+                    _id:
+                        new ObjectId(userId)
 
                 },
 
@@ -491,7 +672,8 @@ async function finalizeUsage(
 
                     $inc: {
 
-                        balance: refund
+                        balance:
+                            refund
 
                     }
 
@@ -512,9 +694,11 @@ async function finalizeUsage(
 
             {
 
-                _id: reservation._id,
+                _id:
+                    reservation._id,
 
-                status: "reserved"
+                status:
+                    "reserved"
 
             },
 
@@ -522,13 +706,17 @@ async function finalizeUsage(
 
                 $set: {
 
-                    status: "completed",
+                    status:
+                        "completed",
 
-                    actualCost: actualCost,
+                    actualCost:
+                        actualCost,
 
-                    tokens: tokens,
+                    tokens:
+                        tokens,
 
-                    completedAt: new Date()
+                    completedAt:
+                        new Date()
 
                 }
 
@@ -547,19 +735,26 @@ async function finalizeUsage(
 
             {
 
-                requestId: requestId,
+                requestId:
+                    requestId,
 
-                userId: userId,
+                userId:
+                    userId,
 
-                type: "ai_usage",
+                type:
+                    "ai_usage",
 
-                tokens: tokens,
+                tokens:
+                    tokens,
 
-                cost: actualCost,
+                cost:
+                    actualCost,
 
-                model: reservation.model,
+                model:
+                    reservation.model,
 
-                createdAt: new Date()
+                createdAt:
+                    new Date()
 
             },
 
@@ -579,6 +774,7 @@ async function finalizeUsage(
             "Actual cost:",
             actualCost
         );
+
 
         console.log(
             "Refund:",
@@ -620,16 +816,22 @@ async function cancelReservation(
     partialTokens = 0
 ) {
 
-    const session = client.startSession();
+    const session =
+        client.startSession();
+
 
     try {
 
         session.startTransaction();
 
-        const db = client.db("ai_playground");
+
+        const db =
+            client.db("ai_playground");
+
 
         const users =
             db.collection("users");
+
 
         const ledger =
             db.collection("ledger");
@@ -640,11 +842,14 @@ async function cancelReservation(
 
                 {
 
-                    requestId: requestId,
+                    requestId:
+                        requestId,
 
-                    type: "ai_reservation",
+                    type:
+                        "ai_reservation",
 
-                    status: "reserved"
+                    status:
+                        "reserved"
 
                 },
 
@@ -661,10 +866,12 @@ async function cancelReservation(
 
             await session.commitTransaction();
 
+
             console.log(
                 "Reservation already processed:",
                 requestId
             );
+
 
             return;
 
@@ -672,13 +879,20 @@ async function cancelReservation(
 
 
         const reservedCost =
-            Number(reservation.reservedCost);
+            Number(
+                reservation.reservedCost
+            );
 
 
         partialTokens =
             Math.max(
+
                 0,
-                Math.floor(Number(partialTokens) || 0)
+
+                Math.floor(
+                    Number(partialTokens) || 0
+                )
+
             );
 
 
@@ -689,8 +903,12 @@ async function cancelReservation(
 
         const refund =
             Math.max(
+
                 0,
-                reservedCost - actualCost
+
+                reservedCost -
+                    actualCost
+
             );
 
 
@@ -704,7 +922,8 @@ async function cancelReservation(
 
                 {
 
-                    _id: new ObjectId(userId)
+                    _id:
+                        new ObjectId(userId)
 
                 },
 
@@ -712,7 +931,8 @@ async function cancelReservation(
 
                     $inc: {
 
-                        balance: refund
+                        balance:
+                            refund
 
                     }
 
@@ -738,9 +958,11 @@ async function cancelReservation(
 
                 {
 
-                    _id: reservation._id,
+                    _id:
+                        reservation._id,
 
-                    status: "reserved"
+                    status:
+                        "reserved"
 
                 },
 
@@ -748,15 +970,20 @@ async function cancelReservation(
 
                     $set: {
 
-                        status: "cancelled",
+                        status:
+                            "cancelled",
 
-                        tokens: partialTokens,
+                        tokens:
+                            partialTokens,
 
-                        actualCost: actualCost,
+                        actualCost:
+                            actualCost,
 
-                        refund: refund,
+                        refund:
+                            refund,
 
-                        cancelledAt: new Date()
+                        cancelledAt:
+                            new Date()
 
                     }
 
@@ -771,7 +998,9 @@ async function cancelReservation(
             );
 
 
-        if (updateResult.modifiedCount !== 1) {
+        if (
+            updateResult.modifiedCount !== 1
+        ) {
 
             throw new Error(
                 "Reservation was already processed."
@@ -790,19 +1019,26 @@ async function cancelReservation(
 
                 {
 
-                    requestId: requestId,
+                    requestId:
+                        requestId,
 
-                    userId: userId,
+                    userId:
+                        userId,
 
-                    type: "ai_usage_cancelled",
+                    type:
+                        "ai_usage_cancelled",
 
-                    tokens: partialTokens,
+                    tokens:
+                        partialTokens,
 
-                    cost: actualCost,
+                    cost:
+                        actualCost,
 
-                    model: reservation.model,
+                    model:
+                        reservation.model,
 
-                    createdAt: new Date()
+                    createdAt:
+                        new Date()
 
                 },
 
@@ -824,15 +1060,18 @@ async function cancelReservation(
             "Generation stopped."
         );
 
+
         console.log(
             "Partial tokens:",
             partialTokens
         );
 
+
         console.log(
             "Partial cost:",
             actualCost
         );
+
 
         console.log(
             "Refund:",
@@ -869,9 +1108,11 @@ app.post("/api/chat", async (req, res) => {
 
         return res.status(400).json({
 
-            success: false,
+            success:
+                false,
 
-            message: "Question is required"
+            message:
+                "Question is required"
 
         });
 
@@ -889,51 +1130,115 @@ app.post("/api/chat", async (req, res) => {
 
     const temperature =
         Number(
+
             req.body.temperature ??
             DEFAULT_TEMPERATURE
+
         );
 
 
     const top_p =
         Number(
+
             req.body.top_p ??
             DEFAULT_TOP_P
+
         );
 
 
     const requestedMaxTokens =
         Number(
+
             req.body.max_tokens ??
             DEFAULT_MAX_TOKENS
+
         );
 
 
     // ===============================
-    // VALIDATION
+    // GET ACTUAL GROQ CHAT MODELS
     // ===============================
 
-    if (!AVAILABLE_MODELS.includes(requestedModel)) {
+    let availableChatModels;
 
-        return res.status(400).json({
 
-            success: false,
+    try {
 
-            message: "Invalid model"
+        availableChatModels =
+            await getChatModels();
+
+    } catch (error) {
+
+        console.error(
+            "Unable to get Groq models:",
+            error.message
+        );
+
+
+        return res.status(500).json({
+
+            success:
+                false,
+
+            message:
+                "Unable to check available Groq models"
 
         });
 
     }
 
 
+    // ===============================
+    // VALIDATE MODEL
+    // ===============================
+
     if (
-        !Number.isFinite(temperature) ||
-        temperature < MIN_TEMPERATURE ||
-        temperature > MAX_TEMPERATURE
+        !availableChatModels.includes(
+            requestedModel
+        )
     ) {
 
         return res.status(400).json({
 
-            success: false,
+            success:
+                false,
+
+            message:
+                "Invalid or unavailable chat model",
+
+            requestedModel:
+                requestedModel,
+
+            availableModels:
+                availableChatModels
+
+        });
+
+    }
+
+
+    // ===============================
+    // VALIDATE TEMPERATURE
+    // ===============================
+
+    if (
+
+        !Number.isFinite(
+            temperature
+        ) ||
+
+        temperature <
+            MIN_TEMPERATURE ||
+
+        temperature >
+            MAX_TEMPERATURE
+
+    ) {
+
+        return res.status(400).json({
+
+            success:
+                false,
 
             message:
                 "Temperature must be between 0 and 2"
@@ -943,15 +1248,28 @@ app.post("/api/chat", async (req, res) => {
     }
 
 
+    // ===============================
+    // VALIDATE TOP P
+    // ===============================
+
     if (
-        !Number.isFinite(top_p) ||
-        top_p < MIN_TOP_P ||
-        top_p > MAX_TOP_P
+
+        !Number.isFinite(
+            top_p
+        ) ||
+
+        top_p <
+            MIN_TOP_P ||
+
+        top_p >
+            MAX_TOP_P
+
     ) {
 
         return res.status(400).json({
 
-            success: false,
+            success:
+                false,
 
             message:
                 "top_p must be between 0 and 1"
@@ -961,15 +1279,28 @@ app.post("/api/chat", async (req, res) => {
     }
 
 
+    // ===============================
+    // VALIDATE MAX TOKENS
+    // ===============================
+
     if (
-        !Number.isInteger(requestedMaxTokens) ||
-        requestedMaxTokens < MIN_MAX_TOKENS ||
-        requestedMaxTokens > MAX_ALLOWED_TOKENS
+
+        !Number.isInteger(
+            requestedMaxTokens
+        ) ||
+
+        requestedMaxTokens <
+            MIN_MAX_TOKENS ||
+
+        requestedMaxTokens >
+            MAX_ALLOWED_TOKENS
+
     ) {
 
         return res.status(400).json({
 
-            success: false,
+            success:
+                false,
 
             message:
                 "max_tokens must be between 1 and 2000"
@@ -987,11 +1318,16 @@ app.post("/api/chat", async (req, res) => {
         new ObjectId().toString();
 
 
-    let stopped = false;
+    let stopped =
+        false;
 
-    let fullAnswer = "";
 
-    let billingFinished = false;
+    let fullAnswer =
+        "";
+
+
+    let billingFinished =
+        false;
 
 
     try {
@@ -1001,20 +1337,24 @@ app.post("/api/chat", async (req, res) => {
             requestId
         );
 
+
         console.log(
             "Model:",
             requestedModel
         );
+
 
         console.log(
             "Temperature:",
             temperature
         );
 
+
         console.log(
             "Top P:",
             top_p
         );
+
 
         console.log(
             "Max Tokens:",
@@ -1077,20 +1417,30 @@ app.post("/api/chat", async (req, res) => {
 
             {
 
-                controller: abortController,
+                controller:
+                    abortController,
 
                 stop: async () => {
 
                     if (stopped) {
+
                         return;
+
                     }
 
-                    stopped = true;
+
+                    stopped =
+                        true;
+
 
                     console.log(
+
                         "STOP requested internally:",
+
                         requestId
+
                     );
+
 
                     abortController.abort();
 
@@ -1106,19 +1456,31 @@ app.post("/api/chat", async (req, res) => {
         // ===============================
 
         res.setHeader(
+
             "Content-Type",
+
             "text/event-stream"
+
         );
 
+
         res.setHeader(
+
             "Cache-Control",
+
             "no-cache"
+
         );
 
+
         res.setHeader(
+
             "Connection",
+
             "keep-alive"
+
         );
+
 
         res.flushHeaders();
 
@@ -1131,17 +1493,23 @@ app.post("/api/chat", async (req, res) => {
 
             `data: ${JSON.stringify({
 
-                type: "start",
+                type:
+                    "start",
 
-                requestId: requestId,
+                requestId:
+                    requestId,
 
-                model: requestedModel,
+                model:
+                    requestedModel,
 
-                temperature: temperature,
+                temperature:
+                    temperature,
 
-                top_p: top_p,
+                top_p:
+                    top_p,
 
-                max_tokens: requestedMaxTokens
+                max_tokens:
+                    requestedMaxTokens
 
             })}\n\n`
 
@@ -1153,28 +1521,39 @@ app.post("/api/chat", async (req, res) => {
         // ===============================
 
         req.on(
+
             "close",
+
             async () => {
 
                 if (
+
                     !stopped &&
+
                     !billingFinished
+
                 ) {
 
                     console.log(
+
                         "Client disconnected:",
+
                         requestId
+
                     );
 
 
-                    stopped = true;
+                    stopped =
+                        true;
 
 
                     abortController.abort();
 
 
                     activeRequests.delete(
+
                         requestId
+
                     );
 
 
@@ -1182,7 +1561,10 @@ app.post("/api/chat", async (req, res) => {
 
                         const partialTokens =
                             Math.ceil(
-                                fullAnswer.length / 4
+
+                                fullAnswer.length /
+                                4
+
                             );
 
 
@@ -1197,7 +1579,8 @@ app.post("/api/chat", async (req, res) => {
                         );
 
 
-                        billingFinished = true;
+                        billingFinished =
+                            true;
 
 
                     } catch (error) {
@@ -1215,6 +1598,7 @@ app.post("/api/chat", async (req, res) => {
                 }
 
             }
+
         );
 
 
@@ -1232,15 +1616,18 @@ app.post("/api/chat", async (req, res) => {
 
                 {
 
-                    model: requestedModel,
+                    model:
+                        requestedModel,
 
                     messages: [
 
                         {
 
-                            role: "system",
+                            role:
+                                "system",
 
                             content: `
+
 You are a helpful AI assistant.
 
 Answer the user's question clearly,
@@ -1250,21 +1637,25 @@ Return only normal text.
 
 Do not return JSON.
 Do not use special structured fields.
+
 `
 
                         },
 
                         {
 
-                            role: "user",
+                            role:
+                                "user",
 
-                            content: question
+                            content:
+                                question
 
                         }
 
                     ],
 
-                    stream: true,
+                    stream:
+                        true,
 
                     max_tokens:
                         requestedMaxTokens,
@@ -1292,8 +1683,10 @@ Do not use special structured fields.
         // ===============================
 
         for await (
+
             const chunk
             of stream
+
         ) {
 
             if (stopped) {
@@ -1312,18 +1705,23 @@ Do not use special structured fields.
 
             if (text) {
 
-                fullAnswer += text;
+                fullAnswer +=
+                    text;
 
 
-                if (!res.writableEnded) {
+                if (
+                    !res.writableEnded
+                ) {
 
                     res.write(
 
                         `data: ${JSON.stringify({
 
-                            type: "chunk",
+                            type:
+                                "chunk",
 
-                            content: text
+                            content:
+                                text
 
                         })}\n\n`
 
@@ -1344,19 +1742,28 @@ Do not use special structured fields.
 
             const partialTokens =
                 Math.ceil(
-                    fullAnswer.length / 4
+
+                    fullAnswer.length /
+                    4
+
                 );
 
 
             if (!billingFinished) {
 
                 console.log(
+
                     "Generation stopped before completion."
+
                 );
 
+
                 console.log(
+
                     "Partial tokens:",
+
                     partialTokens
+
                 );
 
 
@@ -1371,30 +1778,39 @@ Do not use special structured fields.
                 );
 
 
-                billingFinished = true;
+                billingFinished =
+                    true;
 
             }
 
 
-            if (!res.writableEnded) {
+            if (
+                !res.writableEnded
+            ) {
 
                 res.write(
 
                     `data: ${JSON.stringify({
 
-                        type: "stopped",
+                        type:
+                            "stopped",
 
-                        success: true,
+                        success:
+                            true,
 
-                        requestId: requestId,
+                        requestId:
+                            requestId,
 
-                        tokens: partialTokens,
+                        tokens:
+                            partialTokens,
 
-                        partialResponse: fullAnswer
+                        partialResponse:
+                            fullAnswer
 
                     })}\n\n`
 
                 );
+
 
                 res.end();
 
@@ -1412,7 +1828,10 @@ Do not use special structured fields.
 
         const tokens =
             Math.ceil(
-                fullAnswer.length / 4
+
+                fullAnswer.length /
+                4
+
             );
 
 
@@ -1422,13 +1841,20 @@ Do not use special structured fields.
 
 
         console.log(
+
             "Generated tokens:",
+
             tokens
+
         );
 
+
         console.log(
+
             "Actual cost:",
+
             actualCost
+
         );
 
 
@@ -1449,36 +1875,48 @@ Do not use special structured fields.
         );
 
 
-        billingFinished = true;
+        billingFinished =
+            true;
 
 
         // ===============================
         // FINAL EVENT
         // ===============================
 
-        if (!res.writableEnded) {
+        if (
+            !res.writableEnded
+        ) {
 
             res.write(
 
                 `data: ${JSON.stringify({
 
-                    type: "done",
+                    type:
+                        "done",
 
-                    success: true,
+                    success:
+                        true,
 
-                    requestId: requestId,
+                    requestId:
+                        requestId,
 
-                    question: question,
+                    question:
+                        question,
 
-                    tokens: tokens,
+                    tokens:
+                        tokens,
 
-                    cost: actualCost,
+                    cost:
+                        actualCost,
 
-                    model: requestedModel,
+                    model:
+                        requestedModel,
 
-                    temperature: temperature,
+                    temperature:
+                        temperature,
 
-                    top_p: top_p,
+                    top_p:
+                        top_p,
 
                     max_tokens:
                         requestedMaxTokens
@@ -1486,6 +1924,7 @@ Do not use special structured fields.
                 })}\n\n`
 
             );
+
 
             res.end();
 
@@ -1501,23 +1940,30 @@ Do not use special structured fields.
 
         if (
 
-            error.name === "AbortError" ||
+            error.name ===
+                "AbortError" ||
 
-            error.message?.toLowerCase()
+            error.message
+                ?.toLowerCase()
                 .includes("aborted")
 
         ) {
 
-
             console.log(
+
                 "AI request aborted:",
+
                 requestId
+
             );
 
 
             const partialTokens =
                 Math.ceil(
-                    fullAnswer.length / 4
+
+                    fullAnswer.length /
+                    4
+
                 );
 
 
@@ -1535,7 +1981,9 @@ Do not use special structured fields.
 
                     );
 
-                    billingFinished = true;
+
+                    billingFinished =
+                        true;
 
 
                 } catch (cancelError) {
@@ -1553,25 +2001,33 @@ Do not use special structured fields.
             }
 
 
-            if (!res.writableEnded) {
+            if (
+                !res.writableEnded
+            ) {
 
                 res.write(
 
                     `data: ${JSON.stringify({
 
-                        type: "stopped",
+                        type:
+                            "stopped",
 
-                        success: true,
+                        success:
+                            true,
 
-                        requestId: requestId,
+                        requestId:
+                            requestId,
 
-                        tokens: partialTokens,
+                        tokens:
+                            partialTokens,
 
-                        partialResponse: fullAnswer
+                        partialResponse:
+                            fullAnswer
 
                     })}\n\n`
 
                 );
+
 
                 res.end();
 
@@ -1588,8 +2044,11 @@ Do not use special structured fields.
         // ===============================
 
         console.error(
+
             "AI Error:",
+
             error
+
         );
 
 
@@ -1604,12 +2063,17 @@ Do not use special structured fields.
                     requestId,
 
                     Math.ceil(
-                        fullAnswer.length / 4
+
+                        fullAnswer.length /
+                        4
+
                     )
 
                 );
 
-                billingFinished = true;
+
+                billingFinished =
+                    true;
 
 
             } catch (cancelError) {
@@ -1631,38 +2095,46 @@ Do not use special structured fields.
 
             return res.status(400).json({
 
-                success: false,
+                success:
+                    false,
 
-                message: error.message
+                message:
+                    error.message
 
             });
 
         }
 
 
-        if (!res.writableEnded) {
+        if (
+            !res.writableEnded
+        ) {
 
             res.write(
 
                 `data: ${JSON.stringify({
 
-                    type: "error",
+                    type:
+                        "error",
 
-                    message: error.message
+                    message:
+                        error.message
 
                 })}\n\n`
 
             );
 
+
             res.end();
 
         }
 
-
     } finally {
 
         activeRequests.delete(
+
             requestId
+
         );
 
     }
@@ -1675,7 +2147,9 @@ Do not use special structured fields.
 // ===============================
 
 app.post(
+
     "/api/chat/stop",
+
     async (req, res) => {
 
         try {
@@ -1688,7 +2162,8 @@ app.post(
 
                 return res.status(400).json({
 
-                    success: false,
+                    success:
+                        false,
 
                     message:
                         "requestId is required"
@@ -1700,7 +2175,9 @@ app.post(
 
             const request =
                 activeRequests.get(
+
                     requestId
+
                 );
 
 
@@ -1708,7 +2185,8 @@ app.post(
 
                 return res.json({
 
-                    success: true,
+                    success:
+                        true,
 
                     message:
                         "Request already finished or stopped",
@@ -1722,8 +2200,11 @@ app.post(
 
 
             console.log(
+
                 "STOP requested:",
+
                 requestId
+
             );
 
 
@@ -1736,7 +2217,8 @@ app.post(
 
             res.json({
 
-                success: true,
+                success:
+                    true,
 
                 message:
                     "Generation stopped",
@@ -1750,14 +2232,18 @@ app.post(
         } catch (error) {
 
             console.error(
+
                 "Stop error:",
+
                 error
+
             );
 
 
             res.status(500).json({
 
-                success: false,
+                success:
+                    false,
 
                 message:
                     error.message
@@ -1767,6 +2253,7 @@ app.post(
         }
 
     }
+
 );
 
 
@@ -1780,7 +2267,9 @@ async function connectDB() {
 
 
     console.log(
+
         "MongoDB connected successfully!"
+
     );
 
 
@@ -1789,35 +2278,52 @@ async function connectDB() {
 
 
     console.log(
+
         "Database:",
+
         db.databaseName
+
     );
 
 
     const users =
         await db.collection("users")
+
             .find()
+
             .toArray();
 
 
     const ledger =
         await db.collection("ledger")
+
             .find()
+
             .sort({
-                createdAt: -1
+
+                createdAt:
+                    -1
+
             })
+
             .toArray();
 
 
     console.log(
+
         "Users:",
+
         users
+
     );
 
 
     console.log(
+
         "Ledger:",
+
         ledger
+
     );
 
 
@@ -1852,6 +2358,7 @@ async function connectDB() {
 // ===============================
 
 connectDB()
+
     .then(() => {
 
         app.listen(
@@ -1861,7 +2368,9 @@ connectDB()
             () => {
 
                 console.log(
+
                     `Server running on http://localhost:${PORT}`
+
                 );
 
             }
@@ -1869,11 +2378,15 @@ connectDB()
         );
 
     })
+
     .catch((error) => {
 
         console.error(
+
             "Server startup error:",
+
             error
+
         );
 
     });
